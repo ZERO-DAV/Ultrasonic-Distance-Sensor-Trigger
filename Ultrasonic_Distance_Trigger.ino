@@ -1,48 +1,88 @@
-// تعريف المنافذ
-const int trigPin = 2;    // إرسال النبضة
-const int echoPin = 3;    // استقبال النبضة
-const int outputPin = 4;  // المخرج (الذي سيتم تفعيله)
+// ================================
+// Ultrasonic HC-SR04 Stable Trigger
+// ================================
+
+// المنافذ
+const int trigPin   = 2;
+const int echoPin   = 3;
+const int outputPin = 4;
+
+// الإعدادات
+const int ON_DISTANCE  = 15;   // يشغّل عند أقل من 15 سم
+const int OFF_DISTANCE = 25;   // يطفئ عند أكثر من 25 سم
+const int TIMEOUT_US   = 30000; // 30ms ≈ 5m
+const int SAMPLES      = 5;    // عدد القراءات للمتوسط
+
+bool outputState = false;
 
 void setup() {
-  pinMode(trigPin, OUTPUT); // ضبط الـ Trig كمخرج
-  pinMode(echoPin, INPUT);  // ضبط الـ Echo كمدخل
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
   pinMode(outputPin, OUTPUT);
-  Serial.begin(9600);       // لمراقبة المسافة عبر الكمبيوتر
+
+  digitalWrite(trigPin, LOW);
+  digitalWrite(outputPin, LOW);
+
+  Serial.begin(9600);
+}
+
+long readDistanceCM() {
+  long duration;
+  long sum = 0;
+  int valid = 0;
+
+  for (int i = 0; i < SAMPLES; i++) {
+    // تنظيف
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+
+    // نبضة
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+
+    duration = pulseIn(echoPin, HIGH, TIMEOUT_US);
+
+    if (duration > 0) {
+      long d = duration * 0.0343 / 2;
+      if (d > 2 && d < 400) { // تجاهل القيم الغريبة
+        sum += d;
+        valid++;
+      }
+    }
+
+    delay(20);
+  }
+
+  if (valid == 0) return -1; // فشل قراءة
+  return sum / valid;        // متوسط
 }
 
 void loop() {
-  long duration;
-  int distance;
+  long distance = readDistanceCM();
 
-  // تنظيف الـ trigPin
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-
-  // إرسال نبضة صوتية لمدة 10 ميكروثانية
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-
-  // قراءة وقت وصول الصدى بالمايكروثانية
-duration = pulseIn(echoPin, HIGH, 30000); // 30ms ≈ 5m
-if (duration == 0) {
-  digitalWrite(outputPin, LOW);
-  return;
-}
-
-  // حساب المسافة بالسنتيمتر
-  distance = duration * 0.034 / 2;
-
-  // عرض المسافة في شاشة المراقبة
-  Serial.print("Distance: ");
-  Serial.println(distance);
-
-  // شرط التشغيل: إذا كان الجسم على مسافة أقل من 20 سم مثلاً
-  if (distance > 0 && distance < 20) { 
-    digitalWrite(outputPin, HIGH); // تشغيل المخرج 4
-  } else {
-    digitalWrite(outputPin, LOW);  // إطفاء المخرج 4
+  if (distance == -1) {
+    // فشل الصدى → وضع آمن
+    digitalWrite(outputPin, LOW);
+    outputState = false;
+    Serial.println("No echo");
+    delay(100);
+    return;
   }
 
-  delay(1000); // تأخير بسيط لاستقرار القراءة
+  Serial.print("Distance: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+
+  // Hysteresis لمنع التذبذب
+  if (!outputState && distance <= ON_DISTANCE) {
+    digitalWrite(outputPin, HIGH);
+    outputState = true;
+  }
+  else if (outputState && distance >= OFF_DISTANCE) {
+    digitalWrite(outputPin, LOW);
+    outputState = false;
+  }
+
+  delay(100);
 }
